@@ -1,0 +1,1180 @@
+our goal is to create 10 different variables, then we get Y= 5 beta + error we see if different. We split the data of 80 train and 20 test. We will check to see how many times the criterion leads us the right result. As well as the average test error of each model.
+```{r}
+rm(list=ls())
+
+```
+
+
+```{r}
+set.seed(1)
+#lets create some simple simulations 
+Nsim = 100 #number of simulations
+N = 100 #number of data points 
+library(MASS)
+
+```
+
+
+
+
+#setting 2: some with correlation, some dont
+```{r message=FALSE, warning=FALSE}
+### simulation 
+p=11
+#create store vector
+R2_count<-0
+R2adj_count<-0
+Cp_count<-0
+press_count<-0
+AIC_count<-0
+BIC_count<-0
+R2_error<-0
+R2adj_error<-0
+Cp_error<-0
+press_error<-0
+AIC_error<-0
+BIC_error<-0
+for (i in 1:Nsim) {
+  ########################################### PART 1: generate simulation data
+  #generate error
+  epsilon=rnorm(N,mean = 0,sd= 5)
+  #generate 6 random coeffcients 
+  beta0<-runif(1, min=1,max=10)
+  beta1<-runif(1, min=1,max=10)
+  beta2<-runif(1, min=1,max=10)
+  beta3<-runif(1, min=1,max=10)
+  beta4<-runif(1, min=1,max=10)
+  beta5<-runif(1, min=1,max=10)
+  #generate 10 different predictors: I will design some correlated data and some independent data
+  #create data with low correlated, 0.25 
+  Sigma=matrix(c(1,0,0,0,1,0.25,0,0.25,1),3,3)
+  mu=c(1,3,2)
+  data=mvrnorm(N, mu, Sigma)
+  
+  X1 <- data[,1]
+  X2 <- data[,2]
+  X3<- data[,3]
+  #X1 and X2 are independent.
+  #X1 and X3 are independent
+  #X2 and X3 are dependent with correlation of 0.25
+  #create data with low correlated, 0.5
+  Sigma=matrix(c(1,0,0,0,1,0.5,0,0.5,1),3,3)
+  mu=c(1,3,2)
+  data=mvrnorm(N, mu, Sigma)
+  
+  X4 <- data[,1]
+  X5 <- data[,2]
+  X6<- data[,3]
+  #X4 and X5 are independent.
+  #X4 and X6 are independent
+  #are dependent with correlation of 0.5
+  #create data with low correlated, 0.75 
+  Sigma=matrix(c(1,0,0,0,1,0.75,0,0.75,1),3,3)
+  mu=c(1,3,2)
+  data=mvrnorm(N, mu, Sigma)
+  
+  X7 <- data[,1]
+  X8 <- data[,2]
+  X9 <- data[,3]
+  #X1 and X2 are independent.
+  #X1 and X3 are independent
+  #X2 and X3 are dependent with correlation of 0.75
+  #create noise variable
+  X10 <- rnorm(N, 0, 1)
+  #choose randomly 5 predictors
+  sample<- sample(c(1:10), 5, replace = F)
+  #calculate Y based on 5 chosen predictors with 5 random coefficients.
+  X_data <- data.frame(X1,X2,X3,X4,X5, X6, X7, X8, X9, X10)
+  Y<- beta0+ beta1*X_data[,sample[1]]+beta2*X_data[,sample[2]]+beta2*X_data[,sample[3]]+beta3*X_data[,sample[3]]+beta4*X_data[,sample[4]]+beta5*X_data[,sample[5]]+epsilon
+  #split data into training and testing data 80%train and 20% test
+  sample1<-sample(c(1:N), N/100*80, replace =F)
+  df<-data.frame(Y,X_data)
+  train_data<-df[sample1,]
+  test_data<-df[-sample1,]
+  X_train_data<-train_data[,-1]
+  Y_train<-train_data[,1]
+  n<-N/100*80
+  
+  
+  
+  
+  
+  ############################### PART 2: compare different criterion
+  #full extensive search model
+  #create MSEP for Cp
+  MSEP<-anova(lm(Y~.,train_data))$Mean[p]
+  
+  #create store output
+  R2<- 0
+  R2adj<-0
+  Cp<-10^50
+  press<-10^5
+  AIC<-10^50
+  BIC<-10^5
+  for (i in 1:(p-1)) {
+    #get all combination
+    combination <-combn(c(1:10),i)
+    
+    #find the best value of all combination
+    for (j in 1:ncol(combination) ){
+      df<-data.frame(Y=Y_train, X_train_data[,combination[,j]])
+      mod <- lm(Y~.,data = df)
+      ### R2
+      if (R2+0.001 < summary(mod)$r.squared){
+        R2_vec<-combination[,j]
+        mod_R2<- mod
+      }
+      R2<- max(R2, summary(mod)$r.squared)
+      ### adjusted R2
+      if (R2adj < summary(mod)$adj.r.squared){
+        R2adj_vec<-combination[,j]
+        mod_R2adj<-mod
+      }
+      R2adj<-max(R2adj, summary(mod)$adj.r.squared)
+      ### Mallows Cp=SSE_psub/MSE_p-(n-2*psub)-not work, ask for fix later
+      
+      psub=i+1
+      C_P=anova(mod)$Sum[psub]/MSEP-(n-2*psub)
+      if (Cp > C_P){
+        Cp_vec<-combination[,j]
+        mod_Cp<-mod
+      }
+      Cp<-min(Cp, C_P)
+      #PRESS
+      # hi are the diagonal elements of the hat matrix H
+      hi=lm.influence(mod)$hat
+      pr=residuals(mod)/(1 - hi) 
+      PRESS=sum(pr^2)
+      if (press > PRESS){
+        press_vec<-combination[,j]
+        mod_press<- mod
+      }
+      press=min(press, PRESS)
+      ### AIC
+      if (AIC > AIC(mod)) {
+        AIC_vec<-combination[,j]
+        mod_AIC<- mod
+      }
+      AIC<-min(AIC, AIC(mod) )      
+      
+      ### SBC/BIC
+      if (BIC > BIC(mod)) {
+        BIC_vec<-combination[,j]
+        mod_BIC<-mod
+      }
+      BIC<-min(BIC, BIC(mod) )
+      }
+  }
+  ####### Part 3: Evaluate the criterion
+  #count the number of times the criterion gives the right answer
+  if( all( sort(R2_vec)==sort(sample)) & length(R2_vec) ==5  ){
+    R2_count<-R2_count+1
+  }
+  if(all( sort(R2adj_vec)==sort(sample)) &length(R2adj_vec) == 5) {
+    R2adj_count<-R2adj_count+1
+  }
+  if(all( sort(Cp_vec)==sort(sample)) & length(Cp_vec) == 5 ){
+    Cp_count<-Cp_count+1
+  }
+  if(all( sort(press_vec)==sort(sample)) & length(press_vec) == 5 ){
+    press_count<-press_count+1
+  }
+  if(all( sort(AIC_vec)==sort(sample)) & length(AIC_vec) == 5 ){
+    AIC_count<-AIC_count+1
+  }
+  if(all( sort(BIC_vec)==sort(sample)  ) & length(BIC_vec) == 5){
+    BIC_count<-BIC_count+1
+  }
+  #check the MSE of test error:
+  R2_error<-R2_error+ sum((predict(mod_R2, test_data)-test_data$Y)^2)/20
+  R2adj_error<-R2adj_error+ sum((predict(mod_R2adj, test_data)-test_data$Y)^2)/20
+  Cp_error<-Cp_error+ sum((predict(mod_Cp, test_data)-test_data$Y)^2)/20
+  press_error<-press_error+ sum((predict(mod_press, test_data)-test_data$Y)^2)/20
+  AIC_error<-AIC_error+ sum((predict(mod_AIC, test_data)-test_data$Y)^2)/20
+  BIC_error<-BIC_error+ sum((predict(mod_BIC, test_data)-test_data$Y)^2)/20
+}
+```
+
+
+
+```{r}
+R2_error/100
+R2adj_error/100
+Cp_error/100
+press_error/100
+AIC_error/100
+BIC_error/100
+
+
+```
+
+
+
+```{r}
+R2_count
+R2adj_count
+Cp_count
+press_count
+AIC_count
+BIC_count
+```
+## setting 1: independent predictors
+```{r message=FALSE, warning=FALSE}
+### simulation
+p=11
+#create store vector
+R2_count<-0
+R2adj_count<-0
+Cp_count<-0
+press_count<-0
+AIC_count<-0
+BIC_count<-0
+R2_error<-0
+R2adj_error<-0
+Cp_error<-0
+press_error<-0
+AIC_error<-0
+BIC_error<-0
+for (i in 1:1000) {
+  ########################################### PART 1: generate simulation data
+  #generate error
+  epsilon=rnorm(N,mean = 0,sd= 5)
+  #generate 6 random coeffcients 
+  beta0<-runif(1, min=1,max=10)
+  beta1<-runif(1, min=1,max=10)
+  beta2<-runif(1, min=1,max=10)
+  beta3<-runif(1, min=1,max=10)
+  beta4<-runif(1, min=1,max=10)
+  beta5<-runif(1, min=1,max=10)
+  #generate 10 different predictors: 
+  Sigma=diag(x = 1, 10, 10)
+  mu=c(1:10)
+  data=mvrnorm(N, mu, Sigma)
+  
+  X1 <- data[,1]
+  X2 <- data[,2]
+  X3<- data[,3]
+  
+  X4 <- data[,4]
+  X5 <- data[,5]
+  X6<- data[,6]
+  
+  X7 <- data[,7]
+  X8 <- data[,8]
+  X9 <- data[,9]
+  X10 <- data[,10]
+  #choose randomly 5 predictors
+  sample<- sample(c(1:10), 5, replace = F)
+  #calculate Y based on 5 chosen predictors with 5 random coefficients.
+  X_data <- data.frame(X1,X2,X3,X4,X5, X6, X7, X8, X9, X10)
+  Y<- beta0+ beta1*X_data[,sample[1]]+beta2*X_data[,sample[2]]+beta2*X_data[,sample[3]]+beta3*X_data[,sample[3]]+beta4*X_data[,sample[4]]+beta5*X_data[,sample[5]]+epsilon
+  #split data into training and testing data 80%train and 20% test
+  sample1<-sample(c(1:N), N/100*80, replace =F)
+  df<-data.frame(Y,X_data)
+  train_data<-df[sample1,]
+  test_data<-df[-sample1,]
+  X_train_data<-train_data[,-1]
+  Y_train<-train_data[,1]
+  n<-N/100*80
+  
+  
+  
+  
+  
+  ############################### PART 2: compare different criterion
+  #full extensive search model
+  #create MSEP for Cp
+  MSEP<-anova(lm(Y~.,train_data))$Mean[p]
+  
+  #create store output
+  R2<- 0
+  R2adj<-0
+  Cp<-10^50
+  press<-10^5
+  AIC<-10^50
+  BIC<-10^5
+  for (i in 1:(p-1)) {
+    #get all combination
+    combination <-combn(c(1:10),i)
+    
+    #find the best value of all combination
+    for (j in 1:ncol(combination) ){
+      df<-data.frame(Y=Y_train, X_train_data[,combination[,j]])
+      mod <- lm(Y~.,data = df)
+      ### R2
+      if (R2+0.001 < summary(mod)$r.squared){
+        R2_vec<-combination[,j]
+        mod_R2<- mod
+      }
+      R2<- max(R2, summary(mod)$r.squared)
+      ### adjusted R2
+      if (R2adj < summary(mod)$adj.r.squared){
+        R2adj_vec<-combination[,j]
+        mod_R2adj<-mod
+      }
+      R2adj<-max(R2adj, summary(mod)$adj.r.squared)
+      ### Mallows Cp=SSE_psub/MSE_p-(n-2*psub)-not work, ask for fix later
+      
+      psub=i+1
+      C_P=anova(mod)$Sum[psub]/MSEP-(n-2*psub)
+      if (Cp > C_P){
+        Cp_vec<-combination[,j]
+        mod_Cp<-mod
+      }
+      Cp<-min(Cp, C_P)
+      #PRESS
+      # hi are the diagonal elements of the hat matrix H
+      hi=lm.influence(mod)$hat
+      pr=residuals(mod)/(1 - hi) 
+      PRESS=sum(pr^2)
+      if (press > PRESS){
+        press_vec<-combination[,j]
+        mod_press<- mod
+      }
+      press=min(press, PRESS)
+      ### AIC
+      if (AIC > AIC(mod)) {
+        AIC_vec<-combination[,j]
+        mod_AIC<- mod
+      }
+      AIC<-min(AIC, AIC(mod) )      
+      
+      ### SBC/BIC
+      if (BIC > BIC(mod)) {
+        BIC_vec<-combination[,j]
+        mod_BIC<-mod
+      }
+      BIC<-min(BIC, BIC(mod) )
+      }
+  }
+  ####### Part 3: Evaluate the criterion
+  #count the number of times the criterion gives the right answer
+  if( all( sort(R2_vec)==sort(sample)) & length(R2_vec) ==5  ){
+    R2_count<-R2_count+1
+  }
+  if(all( sort(R2adj_vec)==sort(sample)) &length(R2adj_vec) == 5) {
+    R2adj_count<-R2adj_count+1
+  }
+  if(all( sort(Cp_vec)==sort(sample)) & length(Cp_vec) == 5 ){
+    Cp_count<-Cp_count+1
+  }
+  if(all( sort(press_vec)==sort(sample)) & length(press_vec) == 5 ){
+    press_count<-press_count+1
+  }
+  if(all( sort(AIC_vec)==sort(sample)) & length(AIC_vec) == 5 ){
+    AIC_count<-AIC_count+1
+  }
+  if(all( sort(BIC_vec)==sort(sample)  ) & length(BIC_vec) == 5){
+    BIC_count<-BIC_count+1
+  }
+  #check the MSE of test error:
+  R2_error<-R2_error+ sum((predict(mod_R2, test_data)-test_data$Y)^2)/20
+  R2adj_error<-R2adj_error+ sum((predict(mod_R2adj, test_data)-test_data$Y)^2)/20
+  Cp_error<-Cp_error+ sum((predict(mod_Cp, test_data)-test_data$Y)^2)/20
+  press_error<-press_error+ sum((predict(mod_press, test_data)-test_data$Y)^2)/20
+  AIC_error<-AIC_error+ sum((predict(mod_AIC, test_data)-test_data$Y)^2)/20
+  BIC_error<-BIC_error+ sum((predict(mod_BIC, test_data)-test_data$Y)^2)/20
+}
+warning = FALSE
+```
+
+
+```{r}
+R2_error/1000
+R2adj_error/1000
+Cp_error/1000
+press_error/1000
+AIC_error/1000
+BIC_error/1000
+
+
+```
+
+
+
+```{r}
+R2_count
+R2adj_count
+Cp_count
+press_count
+AIC_count
+BIC_count
+```
+
+## setting 2:correlated data
+```{r message=FALSE, warning=FALSE}
+### simulation
+p=11
+rho =0.2
+#create store vector
+R2_count<-0
+R2adj_count<-0
+Cp_count<-0
+press_count<-0
+AIC_count<-0
+BIC_count<-0
+R2_error<-0
+R2adj_error<-0
+Cp_error<-0
+press_error<-0
+AIC_error<-0
+BIC_error<-0
+for (i in 1:Nsim) {
+  ########################################### PART 1: generate simulation data
+  #generate error
+  epsilon=rnorm(N,mean = 0,sd= 5)
+  #generate 6 random coeffcients 
+  beta0<-runif(1, min=1,max=10)
+  beta1<-runif(1, min=1,max=10)
+  beta2<-runif(1, min=1,max=10)
+  beta3<-runif(1, min=1,max=10)
+  beta4<-runif(1, min=1,max=10)
+  beta5<-runif(1, min=1,max=10)
+  #generate 10 different predictors: 
+  Sigma=matrix(rho, nrow=10, ncol = 10)
+  Sigma[1,1]<-1
+  Sigma[2,2]<-1
+  Sigma[3,3]<-1
+  Sigma[4,4]<-1
+  Sigma[5,5]<-1
+  Sigma[6,6]<-1
+  Sigma[7,7]<-1
+  Sigma[8,8]<-1
+  Sigma[9,9]<-1
+  Sigma[10,10]<-1
+  mu=c(1:10)
+  data=mvrnorm(N, mu, Sigma)
+  
+  X1 <- data[,1]
+  X2 <- data[,2]
+  X3<- data[,3]
+  
+  X4 <- data[,4]
+  X5 <- data[,5]
+  X6<- data[,6]
+  
+  X7 <- data[,7]
+  X8 <- data[,8]
+  X9 <- data[,9]
+  X10 <- data[,10]
+  #choose randomly 5 predictors
+  sample<- sample(c(1:10), 5, replace = F)
+  #calculate Y based on 5 chosen predictors with 5 random coefficients.
+  X_data <- data.frame(X1,X2,X3,X4,X5, X6, X7, X8, X9, X10)
+  Y<- beta0+ beta1*X_data[,sample[1]]+beta2*X_data[,sample[2]]+beta2*X_data[,sample[3]]+beta3*X_data[,sample[3]]+beta4*X_data[,sample[4]]+beta5*X_data[,sample[5]]+epsilon
+  #split data into training and testing data 80%train and 20% test
+  sample1<-sample(c(1:N), N/100*80, replace =F)
+  df<-data.frame(Y,X_data)
+  train_data<-df[sample1,]
+  test_data<-df[-sample1,]
+  X_train_data<-train_data[,-1]
+  Y_train<-train_data[,1]
+  n<-N/100*80
+  
+  
+  
+  
+  
+  ############################### PART 2: compare different criterion
+  #full extensive search model
+  #create MSEP for Cp
+  MSEP<-anova(lm(Y~.,train_data))$Mean[p]
+  
+  #create store output
+  R2<- 0
+  R2adj<-0
+  Cp<-10^50
+  press<-10^5
+  AIC<-10^50
+  BIC<-10^5
+  for (i in 1:(p-1)) {
+    #get all combination
+    combination <-combn(c(1:10),i)
+    
+    #find the best value of all combination
+    for (j in 1:ncol(combination) ){
+      df<-data.frame(Y=Y_train, X_train_data[,combination[,j]])
+      mod <- lm(Y~.,data = df)
+      ### R2
+      if (R2+0.001 < summary(mod)$r.squared){
+        R2_vec<-combination[,j]
+        mod_R2<- mod
+      }
+      R2<- max(R2, summary(mod)$r.squared)
+      ### adjusted R2
+      if (R2adj < summary(mod)$adj.r.squared){
+        R2adj_vec<-combination[,j]
+        mod_R2adj<-mod
+      }
+      R2adj<-max(R2adj, summary(mod)$adj.r.squared)
+      ### Mallows Cp=SSE_psub/MSE_p-(n-2*psub)-not work, ask for fix later
+      
+      psub=i+1
+      C_P=anova(mod)$Sum[psub]/MSEP-(n-2*psub)
+      if (Cp > C_P){
+        Cp_vec<-combination[,j]
+        mod_Cp<-mod
+      }
+      Cp<-min(Cp, C_P)
+      #PRESS
+      # hi are the diagonal elements of the hat matrix H
+      hi=lm.influence(mod)$hat
+      pr=residuals(mod)/(1 - hi) 
+      PRESS=sum(pr^2)
+      if (press > PRESS){
+        press_vec<-combination[,j]
+        mod_press<- mod
+      }
+      press=min(press, PRESS)
+      ### AIC
+      if (AIC > AIC(mod)) {
+        AIC_vec<-combination[,j]
+        mod_AIC<- mod
+      }
+      AIC<-min(AIC, AIC(mod) )      
+      
+      ### SBC/BIC
+      if (BIC > BIC(mod)) {
+        BIC_vec<-combination[,j]
+        mod_BIC<-mod
+      }
+      BIC<-min(BIC, BIC(mod) )
+      }
+  }
+  ####### Part 3: Evaluate the criterion
+  #count the number of times the criterion gives the right answer
+  if( all( sort(R2_vec)==sort(sample)) & length(R2_vec) ==5  ){
+    R2_count<-R2_count+1
+  }
+  if(all( sort(R2adj_vec)==sort(sample)) &length(R2adj_vec) == 5) {
+    R2adj_count<-R2adj_count+1
+  }
+  if(all( sort(Cp_vec)==sort(sample)) & length(Cp_vec) == 5 ){
+    Cp_count<-Cp_count+1
+  }
+  if(all( sort(press_vec)==sort(sample)) & length(press_vec) == 5 ){
+    press_count<-press_count+1
+  }
+  if(all( sort(AIC_vec)==sort(sample)) & length(AIC_vec) == 5 ){
+    AIC_count<-AIC_count+1
+  }
+  if(all( sort(BIC_vec)==sort(sample)  ) & length(BIC_vec) == 5){
+    BIC_count<-BIC_count+1
+  }
+  #check the MSE of test error:
+  R2_error<-R2_error+ sum((predict(mod_R2, test_data)-test_data$Y)^2)/20
+  R2adj_error<-R2adj_error+ sum((predict(mod_R2adj, test_data)-test_data$Y)^2)/20
+  Cp_error<-Cp_error+ sum((predict(mod_Cp, test_data)-test_data$Y)^2)/20
+  press_error<-press_error+ sum((predict(mod_press, test_data)-test_data$Y)^2)/20
+  AIC_error<-AIC_error+ sum((predict(mod_AIC, test_data)-test_data$Y)^2)/20
+  BIC_error<-BIC_error+ sum((predict(mod_BIC, test_data)-test_data$Y)^2)/20
+}
+
+```
+
+
+```{r}
+R2_error/100
+R2adj_error/100
+Cp_error/100
+press_error/100
+AIC_error/100
+BIC_error/100
+
+
+```
+
+
+
+```{r}
+R2_count
+R2adj_count
+Cp_count
+press_count
+AIC_count
+BIC_count
+```
+
+```{r message=FALSE, warning=FALSE}
+### simulation
+p=11
+rho =0.4
+#create store vector
+R2_count<-0
+R2adj_count<-0
+Cp_count<-0
+press_count<-0
+AIC_count<-0
+BIC_count<-0
+R2_error<-0
+R2adj_error<-0
+Cp_error<-0
+press_error<-0
+AIC_error<-0
+BIC_error<-0
+for (i in 1:Nsim) {
+  ########################################### PART 1: generate simulation data
+  #generate error
+  epsilon=rnorm(N,mean = 0,sd= 5)
+  #generate 6 random coeffcients 
+  beta0<-runif(1, min=1,max=10)
+  beta1<-runif(1, min=1,max=10)
+  beta2<-runif(1, min=1,max=10)
+  beta3<-runif(1, min=1,max=10)
+  beta4<-runif(1, min=1,max=10)
+  beta5<-runif(1, min=1,max=10)
+  #generate 10 different predictors: 
+  Sigma=matrix(rho, nrow=10, ncol = 10)
+  Sigma[1,1]<-1
+  Sigma[2,2]<-1
+  Sigma[3,3]<-1
+  Sigma[4,4]<-1
+  Sigma[5,5]<-1
+  Sigma[6,6]<-1
+  Sigma[7,7]<-1
+  Sigma[8,8]<-1
+  Sigma[9,9]<-1
+  Sigma[10,10]<-1
+  mu=c(1:10)
+  data=mvrnorm(N, mu, Sigma)
+  
+  X1 <- data[,1]
+  X2 <- data[,2]
+  X3<- data[,3]
+  
+  X4 <- data[,4]
+  X5 <- data[,5]
+  X6<- data[,6]
+  
+  X7 <- data[,7]
+  X8 <- data[,8]
+  X9 <- data[,9]
+  X10 <- data[,10]
+  #choose randomly 5 predictors
+  sample<- sample(c(1:10), 5, replace = F)
+  #calculate Y based on 5 chosen predictors with 5 random coefficients.
+  X_data <- data.frame(X1,X2,X3,X4,X5, X6, X7, X8, X9, X10)
+  Y<- beta0+ beta1*X_data[,sample[1]]+beta2*X_data[,sample[2]]+beta2*X_data[,sample[3]]+beta3*X_data[,sample[3]]+beta4*X_data[,sample[4]]+beta5*X_data[,sample[5]]+epsilon
+  #split data into training and testing data 80%train and 20% test
+  sample1<-sample(c(1:N), N/100*80, replace =F)
+  df<-data.frame(Y,X_data)
+  train_data<-df[sample1,]
+  test_data<-df[-sample1,]
+  X_train_data<-train_data[,-1]
+  Y_train<-train_data[,1]
+  n<-N/100*80
+  
+  
+  
+  
+  
+  ############################### PART 2: compare different criterion
+  #full extensive search model
+  #create MSEP for Cp
+  MSEP<-anova(lm(Y~.,train_data))$Mean[p]
+  
+  #create store output
+  R2<- 0
+  R2adj<-0
+  Cp<-10^50
+  press<-10^5
+  AIC<-10^50
+  BIC<-10^5
+  for (i in 1:(p-1)) {
+    #get all combination
+    combination <-combn(c(1:10),i)
+    
+    #find the best value of all combination
+    for (j in 1:ncol(combination) ){
+      df<-data.frame(Y=Y_train, X_train_data[,combination[,j]])
+      mod <- lm(Y~.,data = df)
+      ### R2
+      if (R2+0.001 < summary(mod)$r.squared){
+        R2_vec<-combination[,j]
+        mod_R2<- mod
+      }
+      R2<- max(R2, summary(mod)$r.squared)
+      ### adjusted R2
+      if (R2adj < summary(mod)$adj.r.squared){
+        R2adj_vec<-combination[,j]
+        mod_R2adj<-mod
+      }
+      R2adj<-max(R2adj, summary(mod)$adj.r.squared)
+      ### Mallows Cp=SSE_psub/MSE_p-(n-2*psub)-not work, ask for fix later
+      
+      psub=i+1
+      C_P=anova(mod)$Sum[psub]/MSEP-(n-2*psub)
+      if (Cp > C_P){
+        Cp_vec<-combination[,j]
+        mod_Cp<-mod
+      }
+      Cp<-min(Cp, C_P)
+      #PRESS
+      # hi are the diagonal elements of the hat matrix H
+      hi=lm.influence(mod)$hat
+      pr=residuals(mod)/(1 - hi) 
+      PRESS=sum(pr^2)
+      if (press > PRESS){
+        press_vec<-combination[,j]
+        mod_press<- mod
+      }
+      press=min(press, PRESS)
+      ### AIC
+      if (AIC > AIC(mod)) {
+        AIC_vec<-combination[,j]
+        mod_AIC<- mod
+      }
+      AIC<-min(AIC, AIC(mod) )      
+      
+      ### SBC/BIC
+      if (BIC > BIC(mod)) {
+        BIC_vec<-combination[,j]
+        mod_BIC<-mod
+      }
+      BIC<-min(BIC, BIC(mod) )
+      }
+  }
+  ####### Part 3: Evaluate the criterion
+  #count the number of times the criterion gives the right answer
+  if( all( sort(R2_vec)==sort(sample)) & length(R2_vec) ==5  ){
+    R2_count<-R2_count+1
+  }
+  if(all( sort(R2adj_vec)==sort(sample)) &length(R2adj_vec) == 5) {
+    R2adj_count<-R2adj_count+1
+  }
+  if(all( sort(Cp_vec)==sort(sample)) & length(Cp_vec) == 5 ){
+    Cp_count<-Cp_count+1
+  }
+  if(all( sort(press_vec)==sort(sample)) & length(press_vec) == 5 ){
+    press_count<-press_count+1
+  }
+  if(all( sort(AIC_vec)==sort(sample)) & length(AIC_vec) == 5 ){
+    AIC_count<-AIC_count+1
+  }
+  if(all( sort(BIC_vec)==sort(sample)  ) & length(BIC_vec) == 5){
+    BIC_count<-BIC_count+1
+  }
+  #check the MSE of test error:
+  R2_error<-R2_error+ sum((predict(mod_R2, test_data)-test_data$Y)^2)/20
+  R2adj_error<-R2adj_error+ sum((predict(mod_R2adj, test_data)-test_data$Y)^2)/20
+  Cp_error<-Cp_error+ sum((predict(mod_Cp, test_data)-test_data$Y)^2)/20
+  press_error<-press_error+ sum((predict(mod_press, test_data)-test_data$Y)^2)/20
+  AIC_error<-AIC_error+ sum((predict(mod_AIC, test_data)-test_data$Y)^2)/20
+  BIC_error<-BIC_error+ sum((predict(mod_BIC, test_data)-test_data$Y)^2)/20
+}
+
+```
+
+
+```{r}
+R2_error/100
+R2adj_error/100
+Cp_error/100
+press_error/100
+AIC_error/100
+BIC_error/100
+
+
+```
+
+
+
+```{r}
+R2_count
+R2adj_count
+Cp_count
+press_count
+AIC_count
+BIC_count
+```
+
+```{r message=FALSE, warning=FALSE}
+### simulation
+p=11
+rho =0.6
+#create store vector
+R2_count<-0
+R2adj_count<-0
+Cp_count<-0
+press_count<-0
+AIC_count<-0
+BIC_count<-0
+R2_error<-0
+R2adj_error<-0
+Cp_error<-0
+press_error<-0
+AIC_error<-0
+BIC_error<-0
+for (i in 1:Nsim) {
+  ########################################### PART 1: generate simulation data
+  #generate error
+  epsilon=rnorm(N,mean = 0,sd= 5)
+  #generate 6 random coeffcients 
+  beta0<-runif(1, min=1,max=10)
+  beta1<-runif(1, min=1,max=10)
+  beta2<-runif(1, min=1,max=10)
+  beta3<-runif(1, min=1,max=10)
+  beta4<-runif(1, min=1,max=10)
+  beta5<-runif(1, min=1,max=10)
+  #generate 10 different predictors: 
+  Sigma=matrix(rho, nrow=10, ncol = 10)
+  Sigma[1,1]<-1
+  Sigma[2,2]<-1
+  Sigma[3,3]<-1
+  Sigma[4,4]<-1
+  Sigma[5,5]<-1
+  Sigma[6,6]<-1
+  Sigma[7,7]<-1
+  Sigma[8,8]<-1
+  Sigma[9,9]<-1
+  Sigma[10,10]<-1
+  mu=c(1:10)
+  data=mvrnorm(N, mu, Sigma)
+  
+  X1 <- data[,1]
+  X2 <- data[,2]
+  X3<- data[,3]
+  
+  X4 <- data[,4]
+  X5 <- data[,5]
+  X6<- data[,6]
+  
+  X7 <- data[,7]
+  X8 <- data[,8]
+  X9 <- data[,9]
+  X10 <- data[,10]
+  #choose randomly 5 predictors
+  sample<- sample(c(1:10), 5, replace = F)
+  #calculate Y based on 5 chosen predictors with 5 random coefficients.
+  X_data <- data.frame(X1,X2,X3,X4,X5, X6, X7, X8, X9, X10)
+  Y<- beta0+ beta1*X_data[,sample[1]]+beta2*X_data[,sample[2]]+beta2*X_data[,sample[3]]+beta3*X_data[,sample[3]]+beta4*X_data[,sample[4]]+beta5*X_data[,sample[5]]+epsilon
+  #split data into training and testing data 80%train and 20% test
+  sample1<-sample(c(1:N), N/100*80, replace =F)
+  df<-data.frame(Y,X_data)
+  train_data<-df[sample1,]
+  test_data<-df[-sample1,]
+  X_train_data<-train_data[,-1]
+  Y_train<-train_data[,1]
+  n<-N/100*80
+  
+  
+  
+  
+  
+  ############################### PART 2: compare different criterion
+  #full extensive search model
+  #create MSEP for Cp
+  MSEP<-anova(lm(Y~.,train_data))$Mean[p]
+  
+  #create store output
+  R2<- 0
+  R2adj<-0
+  Cp<-10^50
+  press<-10^5
+  AIC<-10^50
+  BIC<-10^5
+  for (i in 1:(p-1)) {
+    #get all combination
+    combination <-combn(c(1:10),i)
+    
+    #find the best value of all combination
+    for (j in 1:ncol(combination) ){
+      df<-data.frame(Y=Y_train, X_train_data[,combination[,j]])
+      mod <- lm(Y~.,data = df)
+      ### R2
+      if (R2+0.001 < summary(mod)$r.squared){
+        R2_vec<-combination[,j]
+        mod_R2<- mod
+      }
+      R2<- max(R2, summary(mod)$r.squared)
+      ### adjusted R2
+      if (R2adj < summary(mod)$adj.r.squared){
+        R2adj_vec<-combination[,j]
+        mod_R2adj<-mod
+      }
+      R2adj<-max(R2adj, summary(mod)$adj.r.squared)
+      ### Mallows Cp=SSE_psub/MSE_p-(n-2*psub)-not work, ask for fix later
+      
+      psub=i+1
+      C_P=anova(mod)$Sum[psub]/MSEP-(n-2*psub)
+      if (Cp > C_P){
+        Cp_vec<-combination[,j]
+        mod_Cp<-mod
+      }
+      Cp<-min(Cp, C_P)
+      #PRESS
+      # hi are the diagonal elements of the hat matrix H
+      hi=lm.influence(mod)$hat
+      pr=residuals(mod)/(1 - hi) 
+      PRESS=sum(pr^2)
+      if (press > PRESS){
+        press_vec<-combination[,j]
+        mod_press<- mod
+      }
+      press=min(press, PRESS)
+      ### AIC
+      if (AIC > AIC(mod)) {
+        AIC_vec<-combination[,j]
+        mod_AIC<- mod
+      }
+      AIC<-min(AIC, AIC(mod) )      
+      
+      ### SBC/BIC
+      if (BIC > BIC(mod)) {
+        BIC_vec<-combination[,j]
+        mod_BIC<-mod
+      }
+      BIC<-min(BIC, BIC(mod) )
+      }
+  }
+  ####### Part 3: Evaluate the criterion
+  #count the number of times the criterion gives the right answer
+  if( all( sort(R2_vec)==sort(sample)) & length(R2_vec) ==5  ){
+    R2_count<-R2_count+1
+  }
+  if(all( sort(R2adj_vec)==sort(sample)) &length(R2adj_vec) == 5) {
+    R2adj_count<-R2adj_count+1
+  }
+  if(all( sort(Cp_vec)==sort(sample)) & length(Cp_vec) == 5 ){
+    Cp_count<-Cp_count+1
+  }
+  if(all( sort(press_vec)==sort(sample)) & length(press_vec) == 5 ){
+    press_count<-press_count+1
+  }
+  if(all( sort(AIC_vec)==sort(sample)) & length(AIC_vec) == 5 ){
+    AIC_count<-AIC_count+1
+  }
+  if(all( sort(BIC_vec)==sort(sample)  ) & length(BIC_vec) == 5){
+    BIC_count<-BIC_count+1
+  }
+  #check the MSE of test error:
+  R2_error<-R2_error+ sum((predict(mod_R2, test_data)-test_data$Y)^2)/20
+  R2adj_error<-R2adj_error+ sum((predict(mod_R2adj, test_data)-test_data$Y)^2)/20
+  Cp_error<-Cp_error+ sum((predict(mod_Cp, test_data)-test_data$Y)^2)/20
+  press_error<-press_error+ sum((predict(mod_press, test_data)-test_data$Y)^2)/20
+  AIC_error<-AIC_error+ sum((predict(mod_AIC, test_data)-test_data$Y)^2)/20
+  BIC_error<-BIC_error+ sum((predict(mod_BIC, test_data)-test_data$Y)^2)/20
+}
+
+```
+
+
+```{r}
+R2_error/100
+R2adj_error/100
+Cp_error/100
+press_error/100
+AIC_error/100
+BIC_error/100
+
+
+```
+
+
+
+```{r message=FALSE, warning=FALSE}
+R2_count
+R2adj_count
+Cp_count
+press_count
+AIC_count
+BIC_count
+```
+
+
+```{r}
+### simulation
+p=11
+rho =0.8
+#create store vector
+R2_count<-0
+R2adj_count<-0
+Cp_count<-0
+press_count<-0
+AIC_count<-0
+BIC_count<-0
+R2_error<-0
+R2adj_error<-0
+Cp_error<-0
+press_error<-0
+AIC_error<-0
+BIC_error<-0
+for (i in 1:Nsim) {
+  ########################################### PART 1: generate simulation data
+  #generate error
+  epsilon=rnorm(N,mean = 0,sd= 5)
+  #generate 6 random coeffcients 
+  beta0<-runif(1, min=1,max=10)
+  beta1<-runif(1, min=1,max=10)
+  beta2<-runif(1, min=1,max=10)
+  beta3<-runif(1, min=1,max=10)
+  beta4<-runif(1, min=1,max=10)
+  beta5<-runif(1, min=1,max=10)
+  #generate 10 different predictors: 
+  Sigma=matrix(rho, nrow=10, ncol = 10)
+  Sigma[1,1]<-1
+  Sigma[2,2]<-1
+  Sigma[3,3]<-1
+  Sigma[4,4]<-1
+  Sigma[5,5]<-1
+  Sigma[6,6]<-1
+  Sigma[7,7]<-1
+  Sigma[8,8]<-1
+  Sigma[9,9]<-1
+  Sigma[10,10]<-1
+  mu=c(1:10)
+  data=mvrnorm(N, mu, Sigma)
+  
+  X1 <- data[,1]
+  X2 <- data[,2]
+  X3<- data[,3]
+  
+  X4 <- data[,4]
+  X5 <- data[,5]
+  X6<- data[,6]
+  
+  X7 <- data[,7]
+  X8 <- data[,8]
+  X9 <- data[,9]
+  X10 <- data[,10]
+  #choose randomly 5 predictors
+  sample<- sample(c(1:10), 5, replace = F)
+  #calculate Y based on 5 chosen predictors with 5 random coefficients.
+  X_data <- data.frame(X1,X2,X3,X4,X5, X6, X7, X8, X9, X10)
+  Y<- beta0+ beta1*X_data[,sample[1]]+beta2*X_data[,sample[2]]+beta2*X_data[,sample[3]]+beta3*X_data[,sample[3]]+beta4*X_data[,sample[4]]+beta5*X_data[,sample[5]]+epsilon
+  #split data into training and testing data 80%train and 20% test
+  sample1<-sample(c(1:N), N/100*80, replace =F)
+  df<-data.frame(Y,X_data)
+  train_data<-df[sample1,]
+  test_data<-df[-sample1,]
+  X_train_data<-train_data[,-1]
+  Y_train<-train_data[,1]
+  n<-N/100*80
+  
+  
+  
+  
+  
+  ############################### PART 2: compare different criterion
+  #full extensive search model
+  #create MSEP for Cp
+  MSEP<-anova(lm(Y~.,train_data))$Mean[p]
+  
+  #create store output
+  R2<- 0
+  R2adj<-0
+  Cp<-10^50
+  press<-10^5
+  AIC<-10^50
+  BIC<-10^5
+  for (i in 1:(p-1)) {
+    #get all combination
+    combination <-combn(c(1:10),i)
+    
+    #find the best value of all combination
+    for (j in 1:ncol(combination) ){
+      df<-data.frame(Y=Y_train, X_train_data[,combination[,j]])
+      mod <- lm(Y~.,data = df)
+      ### R2
+      if (R2+0.001 < summary(mod)$r.squared){
+        R2_vec<-combination[,j]
+        mod_R2<- mod
+      }
+      R2<- max(R2, summary(mod)$r.squared)
+      ### adjusted R2
+      if (R2adj < summary(mod)$adj.r.squared){
+        R2adj_vec<-combination[,j]
+        mod_R2adj<-mod
+      }
+      R2adj<-max(R2adj, summary(mod)$adj.r.squared)
+      ### Mallows Cp=SSE_psub/MSE_p-(n-2*psub)-not work, ask for fix later
+      
+      psub=i+1
+      C_P=anova(mod)$Sum[psub]/MSEP-(n-2*psub)
+      if (Cp > C_P){
+        Cp_vec<-combination[,j]
+        mod_Cp<-mod
+      }
+      Cp<-min(Cp, C_P)
+      #PRESS
+      # hi are the diagonal elements of the hat matrix H
+      hi=lm.influence(mod)$hat
+      pr=residuals(mod)/(1 - hi) 
+      PRESS=sum(pr^2)
+      if (press > PRESS){
+        press_vec<-combination[,j]
+        mod_press<- mod
+      }
+      press=min(press, PRESS)
+      ### AIC
+      if (AIC > AIC(mod)) {
+        AIC_vec<-combination[,j]
+        mod_AIC<- mod
+      }
+      AIC<-min(AIC, AIC(mod) )      
+      
+      ### SBC/BIC
+      if (BIC > BIC(mod)) {
+        BIC_vec<-combination[,j]
+        mod_BIC<-mod
+      }
+      BIC<-min(BIC, BIC(mod) )
+      }
+  }
+  ####### Part 3: Evaluate the criterion
+  #count the number of times the criterion gives the right answer
+  if( all( sort(R2_vec)==sort(sample)) & length(R2_vec) ==5  ){
+    R2_count<-R2_count+1
+  }
+  if(all( sort(R2adj_vec)==sort(sample)) &length(R2adj_vec) == 5) {
+    R2adj_count<-R2adj_count+1
+  }
+  if(all( sort(Cp_vec)==sort(sample)) & length(Cp_vec) == 5 ){
+    Cp_count<-Cp_count+1
+  }
+  if(all( sort(press_vec)==sort(sample)) & length(press_vec) == 5 ){
+    press_count<-press_count+1
+  }
+  if(all( sort(AIC_vec)==sort(sample)) & length(AIC_vec) == 5 ){
+    AIC_count<-AIC_count+1
+  }
+  if(all( sort(BIC_vec)==sort(sample)  ) & length(BIC_vec) == 5){
+    BIC_count<-BIC_count+1
+  }
+  #check the MSE of test error:
+  R2_error<-R2_error+ sum((predict(mod_R2, test_data)-test_data$Y)^2)/20
+  R2adj_error<-R2adj_error+ sum((predict(mod_R2adj, test_data)-test_data$Y)^2)/20
+  Cp_error<-Cp_error+ sum((predict(mod_Cp, test_data)-test_data$Y)^2)/20
+  press_error<-press_error+ sum((predict(mod_press, test_data)-test_data$Y)^2)/20
+  AIC_error<-AIC_error+ sum((predict(mod_AIC, test_data)-test_data$Y)^2)/20
+  BIC_error<-BIC_error+ sum((predict(mod_BIC, test_data)-test_data$Y)^2)/20
+}
+
+```
+
+
+```{r}
+R2_error/100
+R2adj_error/100
+Cp_error/100
+press_error/100
+AIC_error/100
+BIC_error/100
+
+
+```
+
+
+
+```{r}
+R2_count
+R2adj_count
+Cp_count
+press_count
+AIC_count
+BIC_count
+```
+
+
+
+
